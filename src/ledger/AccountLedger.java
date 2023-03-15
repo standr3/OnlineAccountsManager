@@ -1,19 +1,19 @@
+package ledger;
+
+import ledger.dbconnection.ConnectionManager;
+
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.sql.*;
 import javax.swing.*;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import javax.swing.table.*;
 
 public class AccountLedger extends JFrame {
-    private JTable table;
-    private JScrollPane scrollPane;
-    private JButton addButton, updateButton, deleteButton;
+    private final JTable table;
     private int selectedRow = -1;
 
-    public AccountLedger(String id) {
+    public AccountLedger(int id) {
         super("Account Ledger for ID " + id);
         setResizable(true);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -22,10 +22,12 @@ public class AccountLedger extends JFrame {
         String[] columns = {"ID","Site", "Username", "Password"};
         DefaultTableModel model = new DefaultTableModel(columns, 0);
         table = new JTable(model);
-        scrollPane = new JScrollPane(table);
+        JScrollPane scrollPane = new JScrollPane(table);
         add(scrollPane, BorderLayout.CENTER);
+        //hide the ID column
+        table.getColumnModel().getColumn(0).setMinWidth(0);
 
-        addButton = new JButton("Add");
+        JButton addButton = new JButton("Add");
         addButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -33,52 +35,51 @@ public class AccountLedger extends JFrame {
             }
         });
 
-        updateButton = new JButton("Update");
-        updateButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (selectedRow == -1) {
-                    JOptionPane.showMessageDialog(AccountLedger.this, "Please select a row to update.", "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-
-                String site = (String) table.getValueAt(selectedRow, 1);
-                String username = (String) table.getValueAt(selectedRow, 2);
-                String password = (String) table.getValueAt(selectedRow, 3);
-                updateAccount(selectedRow, site, username, password);
+        JButton updateButton = new JButton("Update");
+        updateButton.addActionListener(e -> {
+            if (selectedRow == -1) {
+                JOptionPane.showMessageDialog(AccountLedger.this, "Please select a row to update.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
             }
+            //extract all the current values from the selected row
+            String site = (String) table.getValueAt(selectedRow, 1);
+            String username = (String) table.getValueAt(selectedRow, 2);
+            String password = (String) table.getValueAt(selectedRow, 3);
+            updateAccount(selectedRow, site, username, password);
         });
-        deleteButton = new JButton("Delete");
-        deleteButton.addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (selectedRow == -1) {
-                    JOptionPane.showMessageDialog(AccountLedger.this, "Please select a row to delete.", "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-
-                int accountId = (int) table.getValueAt(selectedRow, 0);
-                deleteAccount(accountId);
+        JButton deleteButton = new JButton("Delete");
+        deleteButton.addActionListener(e -> {
+            if (selectedRow == -1) {
+                JOptionPane.showMessageDialog(AccountLedger.this, "Please select a row to delete.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
             }
+
+            int accountId = (int) table.getValueAt(selectedRow, 0);
+            deleteAccount(accountId);
+        });
+
+        JButton logoutButton = new JButton("Logout");
+        logoutButton.addActionListener(e -> {
+            dispose();
+            new LoginFrame();
         });
 
         JPanel buttonPanel = new JPanel();
         buttonPanel.add(addButton);
         buttonPanel.add(updateButton);
         buttonPanel.add(deleteButton);
+        buttonPanel.add(logoutButton);
         add(buttonPanel, BorderLayout.SOUTH);
 
-        table.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
-            @Override
-            public void valueChanged(ListSelectionEvent e) {
-                selectedRow = table.getSelectedRow();
-            }
-        });
+        table.getSelectionModel().addListSelectionListener(e -> selectedRow = table.getSelectedRow());
+        getDataFromDB(model, id);
+    }
 
+    private void getDataFromDB(DefaultTableModel model, int id) {
         try {
             ConnectionManager conn = new ConnectionManager();
-            String query = String.format("SELECT * FROM accounts WHERE user_id = '%s'", id);
-            ResultSet rs = conn.statement.executeQuery(query);
+            String query = String.format("SELECT * FROM accounts WHERE user_id = '%d'", id);
+            ResultSet rs = conn.getStatement().executeQuery(query);
 
             while (rs.next()) {
                 int accountId = rs.getInt("entry_id");
@@ -92,8 +93,7 @@ public class AccountLedger extends JFrame {
             e.printStackTrace();
         }
     }
-
-    private void addAccount(String userId) {
+    private void addAccount(int userId) {
         String site = JOptionPane.showInputDialog(this, "Enter site name:");
         String username = JOptionPane.showInputDialog(this, "Enter username:");
         String password = JOptionPane.showInputDialog(this, "Enter password:");
@@ -101,13 +101,13 @@ public class AccountLedger extends JFrame {
         try {
             ConnectionManager conn = new ConnectionManager();
             String query =
-                    String.format("INSERT INTO accounts (user_id, website, user_name, pass_word) VALUES ('%s', '%s', '%s', '%s')",
+                    String.format("INSERT INTO accounts (user_id, website, user_name, pass_word) VALUES ('%d', '%s', '%s', '%s')",
                     userId, site, username, password);
-            int rowsInserted = conn.statement.executeUpdate(query);
+            int rowsInserted = conn.getStatement().executeUpdate(query);
             if (rowsInserted > 0) {
                 JOptionPane.showMessageDialog(this, "Account added successfully.");
                 DefaultTableModel model = (DefaultTableModel) table.getModel();
-                Object[] row = {getLastInsertedId(conn.connection), site, username, password};
+                Object[] row = {getLastInsertedId(conn.getConnection()), site, username, password};
                 model.addRow(row);
             } else {
                 JOptionPane.showMessageDialog(this, "Unable to add account.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -126,7 +126,6 @@ public class AccountLedger extends JFrame {
         }
         return -1;
     }
-
     private void updateAccount(int row, String site, String username, String password) {
         int accountId = (int) table.getValueAt(row, 0);
         try {
@@ -137,7 +136,7 @@ public class AccountLedger extends JFrame {
                     ,username
                     ,password
                     ,accountId);
-            int rowsUpdated = conn.statement.executeUpdate(query);
+            int rowsUpdated = conn.getStatement().executeUpdate(query);
             if (rowsUpdated > 0) {
                 JOptionPane.showMessageDialog(this, "Account updated successfully.");
             } else {
@@ -151,7 +150,7 @@ public class AccountLedger extends JFrame {
         try {
             ConnectionManager conn = new ConnectionManager();
             String query = String.format("DELETE FROM accounts WHERE entry_id='%d'", id);
-            int rowsDeleted = conn.statement.executeUpdate(query);
+            int rowsDeleted = conn.getStatement().executeUpdate(query);
             if (rowsDeleted > 0) {
                 JOptionPane.showMessageDialog(this, "Account deleted successfully.");
                 DefaultTableModel model = (DefaultTableModel) table.getModel();
